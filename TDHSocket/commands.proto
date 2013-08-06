@@ -1,0 +1,266 @@
+package protobuf;
+
+option java_package = "com.taobao.ustore.common.protobuf";
+
+option java_generic_services = true;
+//column = [value] etc.. every value are wrapped by Value Object.
+message Value{ 
+	optional int32 integerVal = 2;
+	optional int64 longVal = 3;//normally greater than 256 
+	optional bool boolVal = 4;
+	optional string stringVal = 5;
+	optional double doubleVal = 6;
+	optional float floatVal = 7;
+	optional string charVal = 8;
+	optional int32 bindVal = 9;
+	optional int64 dateVal = 10;
+	optional bool null = 11;
+
+}
+
+//select * from table where [Expression] = [Expression]
+//each expression can be a Column Object , Value Object or function object
+message Expression{
+	optional Column column = 1;
+	optional Value value = 2;
+	optional Function function = 3;
+	
+}
+
+//select * from table where [Function] = 0 or update set val = [Function] 
+message Function 
+{
+	optional string functionName = 1;//function Name , ex. count(pk) the functionName is "count"
+	repeated Expression expression = 2;//arguments
+	optional string alias = 3; // alias of this function
+	optional bool distinct = 4; //weather or not a distinct Function like Count(distinct name)
+	optional string tableName = 5;//function can belongs to A table , like select A.count(*) from tableA A join tableB B on A.id=B.id
+	optional string columnName = 6;//the full name of this function . ( the original function String ). ex. count(pk) .the columnName is "count(pk)" , means "functionName + ( + columnName + ) ..
+	optional bool isNot = 7; //select [not 1 = 1]
+}
+
+//Values List, can be used in ResultSet, used to store each row of Data.
+message ValuesArray{
+	repeated Value values =1;
+	optional bool empty=2;//weather or not It's empty.
+}
+
+//Columns List , can be used in ResultSet , used to store the column metas of the resultSet
+message ColumnsArray{
+	repeated Column columns = 1;
+}
+
+
+//select * from table where [Column] = 3
+message Column
+{
+	optional string columnName = 1;
+	optional ValueType valueType = 2;//The dataType of this column , can be used in ResultSet or Query Command.
+	optional AGGREGATE_FUNC aggegateFunction = 3; //count sun max min AVG is the special Function , belonging to Column
+	optional string alias = 4;//select column as [alias]
+	optional bool distinct = 5;//weather or not a distincted column. ex select [ distinct column]
+	optional string tablename = 6;
+	optional bool isNot = 7;//select [not 1 = 1]
+	enum AGGREGATE_FUNC{
+			COUNT = 1;
+			SUM = 2;
+			MAX = 3;
+			MIN = 4;
+			AVG = 5;
+	}
+	enum ValueType {
+	    LONG_VAL= 1;
+	    SHORT_VAL= 2;
+	    BOOLEAN_VAL= 3;
+	    CHAR_VAL = 4;
+	    STRING_VAL = 5;
+	    FLOAT_VAL = 6;
+	    DOUBLE_VAL = 7;
+	    INT_VAL= 8;
+	    BIND_VAL = 9;
+	    DATE_VAL = 10;
+	    BYTES_VAL = 11;
+	    TIMESTAMP=12;
+	  }
+	  
+}
+
+message OrderBy{
+		enum DIRECTION{
+		ASC = 1;
+		DESC = 2;
+		}
+		optional DIRECTION direction =1;
+		optional Expression column = 2;
+	}
+
+//Return value of your query . there has some problems left by history , Result set Object may have a Key Key-ValuePair and a Value Key-ValuePair. but we usually only use Key Key-ValuePair.. Value key-valuePair is deprecated.
+message ResultSet{
+	repeated Expression keyColumns = 1;
+	repeated ValuesArray keyRows = 2;
+	optional string exception = 3;//have any expression ? if this filed is not empty , the values of others(keyColumns,values etc) will be ignored.
+	optional int64 transactionId = 4; //if query happend with transaction , you have to pass the transaction id back to the caller.
+	optional int32 resultSetId = 5;//if the ResultSet is too big, you can hold a k-v context like : resultSet id -> ResultSetCursor. then the client will use "fetchNext" command to get more recore or "closeResultSet" command to tell you to close your ResultSet cursor.
+	optional bool success = 6; //this query is success?
+	repeated Expression valColumns = 7;//Deprecated
+	repeated ValuesArray valRows = 8;//Deprecated
+	optional ExtraMsg extraRouteMsg = 9;//hard to explain .. ask me directely
+             repeated OrderBy orderBy = 10;
+             repeated Expression selectionColumn = 11; //result set metadata
+}
+ //addtional msg like useTempTable = true  .. etc.. hard to explain...
+message ExtraMsg{
+	repeated string extraRouteKey = 1;
+	optional ValuesArray extraRouteValue = 2;
+	}
+
+
+
+//query Plan , the atom element of the whole execute plan tree
+message QueryCommon{
+	repeated OrderBy orderBy = 1;// order by ?
+	optional int64 limitFrom = 2; //limit from?{limitFrom}
+	optional int64 limitTo = 3; //limit to?{limitTo}
+	optional Filter valueFilters = 4;// or named post filter ? go through each of  your records that selected by log2n key search, then discard the one when the value of post filters is false.{ResultFilter}
+	repeated Expression selectionColumn = 5;//{columns}
+	repeated OrderBy groupBy = 6;
+	optional Filter keyFilter = 7;//the filters that you can used in log2n Key search.{KeyFilter}
+	optional string idxName = 8;//index name , like [TABLE._IDX]{indexName}
+	optional PlanType planNodeType = 9; //join type
+	repeated CommandNode subNodes = 10; //merge or join , they all have sub nodes.
+	optional string dataNodeKey = 12;//chooise the executor node .{executeOn}
+	optional LockModel lockModel = 13;//readlock or writelock
+	optional bool consistentRead = 14;//if true , we have to use master node ,to avoid unconsistent reading.
+	optional QUERY_CONCURRENCY queryConcurrency = 15; 
+	optional bool leftOuter = 16; // weather or not a left outer join
+	optional bool rightOuter = 17;//weather or not a right outer join
+	repeated Column rightJoinOnColumn = 18; // tableA join tableB on [leftJoinOnColumn] = [rightJoinOnColumn] {joinOnColumns}
+	repeated Column leftJoinOnColumn = 19;// tableA join tableB on [leftJoinOnColumn] = [rightJoinOnColumn]{joinOnColumns}
+	optional string alias = 20; //select * from (select * from tab) as [alias] {alias}
+	optional int64 requestID = 21; //used for statistical . we can use this number to link sql from client and executing detail from server.
+	optional string requestHostName = 22;//used for statistical . we can use this number to link sql from client and executing detail from server.
+	optional int32 subRequestID = 23;//used for statistical . we can use this number to link sql from client and executing detail from server.
+	optional int32 thread = 24;//e...zheshi ge da keng..ask mengshi for detail.
+	optional bool sharded = 25; //right join lazy sharding . sometimes we don't know which key has been chosen, so we have to execute the left query node ,and then decide which node on the right query that we need to send request.
+	optional bool canMerge = 26; //can be merged in one sql?
+	optional bool useTempTableExplicit = 27; //is use temp table explicitly?
+	optional string actualTable = 28;// {dbName}
+	optional bool isSubQuery= 29; //merge or join , isSubQuery is true.other ? false
+	optional bool isUnion= 30; 
+	optional Filter otherJoinFilter = 31;
+	enum QUERY_CONCURRENCY{
+		SEQUENTIAL = 1;
+		CONCURRENT = 2 ;
+	}
+	enum PlanType {
+		NEST_LOOP_JOIN = 1;
+		SORT_MERGE_JOIN = 2;
+		HASH_JOIN = 3;
+		QUERY = 4;
+		INDEX_NEST_LOOP = 6;
+		MERGE = 7;
+	}
+	enum LockModel {
+		SHARED_LOCK = 1;
+		EXCLUSIVE_LOCK = 2;
+	}
+}
+
+message Put{
+	optional QueryCommon queryCommon = 1;
+	repeated Expression columns = 2;
+	optional string indexName = 3;
+	optional PUT_TYPE putType = 4;
+	repeated Expression updateVal = 5;
+	optional string dataNodeKey = 6;
+	optional int32 thread = 7;
+	optional string indexKey = 8;
+	enum PUT_TYPE{
+		REPLACE=1;
+		INSERT=2;
+		DELETE=3;
+		UPDATE=4;
+	}
+}
+
+
+message Filter {//filter one column. can be used to choose  one column in keys or values in k-v map;
+		optional Expression column = 1;
+		optional AccessType accessType = 2;
+		optional Expression value = 3;
+		repeated Expression subChildren = 4;
+		repeated Expression values = 5;
+		optional bool inFromUser = 6;
+		optional bool isNot = 7;
+		enum AccessType{
+			AND = 1;
+			OR = 2;
+			GT = 3;
+			LT = 4;
+			GT_EQ = 5;
+			LT_EQ = 6;
+			EQ = 7;
+			LIKE = 8;
+			IS_NULL = 9;
+			IS_NOT_NULL = 10;
+			NOT_EQ = 11;
+			IN = 12;
+			IS=13;
+			CONSTANT=14;
+			NULL_SAFE_EQUAL = 15;
+		}
+	}
+
+message CommandNode
+{
+	optional Put put = 1;
+	optional QueryCommon queryCommon = 2;
+}
+message CommandRequest
+{
+	optional bool createNewTransaction = 1;
+	optional int64 transactionSequence = 2;
+	optional CommandNode cmdNode = 3;
+	optional ExtraMsg extramsg = 4;
+	optional int32 fetchSize = 5;
+}
+
+message ResultSetRequest 
+{
+	optional int32 resultSequence = 1;
+	optional int32 fetchSize = 2;
+	optional ExtraMsg extramsg = 3;
+}
+
+message TransactionRequest
+{
+	optional int64 transactionSequence = 1;
+	optional ExtraMsg extramsg = 2;
+}
+
+message LoginRequest
+{
+	optional string user = 1;
+	optional string password = 2;
+	optional ExtraMsg extramsg = 3;
+}
+
+message PingRequest
+{
+	optional string msg = 1;
+	optional ExtraMsg extramsg = 2;
+}
+service CommandExecutor {
+	rpc ping(PingRequest) returns (ResultSet);
+	rpc login(LoginRequest) returns (ResultSet);
+	rpc execute (CommandRequest) returns (ResultSet);
+	rpc fetchNext (ResultSetRequest) returns (ResultSet);
+	rpc closeResultSet (ResultSetRequest) returns (ResultSet);
+	rpc commit(TransactionRequest) returns (ResultSet);
+	rpc rollback(TransactionRequest) returns (ResultSet);
+	rpc first(ResultSetRequest) returns (ResultSet);
+	rpc beforeFirst(ResultSetRequest) returns (ResultSet);
+}
+
+
+
